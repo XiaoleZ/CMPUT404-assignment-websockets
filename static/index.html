@@ -42,32 +42,74 @@ function debug(str) {
 }
 debug("Test");
 
+function sendJSONXMLHTTPRequest(url, objects, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState == 4) {
+            try {
+                if (xhr.status == 200) {
+                    //XXX: parse some JSON from the request!
+                    //XXX: Pass the data to the callback!
+                    var response = JSON.parse(xhr.response);
+                    callback(response);
+                }
+            }
+            catch (e) {
+                console.error(e);
+                alert('Error: ' + e.name);
+            }
+        }
+    };
+    //XXX: POST to a URL
+    xhr.open("POST", url, true);
+    //XXX: set the mimetype and the accept headers!
+    // Remember to use application/json !
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', '*/*'); //accept all types
+    // xhr.setRequestHeader('Cache-Control', 'no-cache'); //accept all types
+    xhr.send(JSON.stringify(objects));
+}
+
 world = {};
 
 //XXX: TODO Make this prettier!
-function drawCircle(context,entity) {
-    with(context) {
-        beginPath();                
+function drawCircle(context, entity) {
+    with (context) {
+        beginPath();
         lineWidth = 3;
         var x = entity["x"];
         var y = entity["y"];
+        var image = new Image();
         //moveTo(x,y);
-        fillStyle = entity["colour"];
-        strokeStyle = fillStyle;
-        arc(x, y, (entity["radius"])?entity["radius"]:50, 0, 2.0 * Math.PI, false);  
-        stroke();                                
+        // fillStyle = entity["colour"];
+        // strokeStyle = fillStyle;
+        // arc(x, y, (entity["radius"]) ? entity["radius"] : 50, 0, 2.0 * Math.PI, false);
+        // stroke();
+        if (entity["colour"] == "petal"){
+            image.src = "petal.png";
+        } else {
+            image.src = "flower.png";
+        }
+        drawImage(image, x-(entity["width"]/2), y-(entity["height"]/2), entity["width"], entity["height"]);
     }
 }
 
 function prepEntity(entity) {
     if (!entity["colour"]) {
-        entity["colour"] = "#FF0000";
+        entity["colour"] = "flower";
     }
-    if (!entity["radius"]) {
-        entity["radius"] = 50;
+    if (!entity["width"]) {
+        entity["width"] = 100;
     }
+    if (!entity["height"]) {
+        entity["height"] = 100;
+    }
+    // if (!entity["radius"]) {
+    //     entity["height"] = 50;
+    // }
     return entity;
 }
+
 
 function clearFrame() {
     with(context) {
@@ -125,7 +167,14 @@ function addEntity(entity, data) {
     world[entity] = data;
     drawNextFrame(); // (but should we?)
     //XXX: Send a XHTML Request that updates the entity you just modified!
+    if (socket.readyState === 1){
+        socket.send(JSON.stringify({[entity]:data}));
+        var url = "http://" + host + "/entity/" + entity;
+        sendJSONXMLHTTPRequest(url, data, checkForUpdate)
+    }
+    
 }
+
 var counter = 0;
 function addEntityWithoutName(data) {
     var name = "X"+(counter++)%100;
@@ -230,17 +279,32 @@ mouse = (function() {
 
 // Add the application specific mouse listeners!
 //XXX: TODO Make these prettier!
-mouse.mousedowners.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+mouse.mousedowners.push(function (x, y, clicked, e) {
+    // addEntityWithoutName({ 'x': x, 'y': y, 'colour': 'red' });
+    addEntityWithoutName({
+        'x': x, 'y': y, 'colour': 'flower',
+        'width': 100,
+        'height': 100,
+    });
 });
 
-mouse.mouseuppers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+mouse.mouseuppers.push(function (x, y, clicked, e) {
+    // addEntityWithoutName({ 'x': x, 'y': y, 'colour': 'yellow' });
+    addEntityWithoutName({
+        'x': x, 'y': y, 'colour': 'flower',
+        'width': 100,
+        'height': 100, 
+    });
 });
 
-mouse.mousedraggers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'green',
-                          'radius':10});
+mouse.mousedraggers.push(function (x, y, clicked, e) {
+    addEntityWithoutName({
+        // 'x': x, 'y': y, 'colour': 'green',
+        'x': x, 'y': y, 'colour': 'petal',
+        'width': 60,
+        'height': 60,
+        // 'radius':10
+    });
 });
 
 
@@ -248,12 +312,24 @@ function update() {
     drawFrame();
 }
 
+function checkForUpdate(response){
+    // world = response;
+    drawNextFrame();
+}
+
+function updateWorld(response){
+    world = response;
+    drawNextFrame();
+}
 
 function wsSetup() {
     var url = "ws://"+host+"/subscribe";   
     socket = new WebSocket(url);
-    socket.onopen = function() {
+    socket.onopen = function() {  // connection is open
         //XXX: TODO What are you going to do here?
+        console.log("sending to server");
+        sendJSONXMLHTTPRequest( "http://" + host + "/world", null, updateWorld)
+        drawFrame();
     };
     socket.onerror = function(msg) {
         debug("WebSocket Error:" + msg.data);
@@ -261,7 +337,13 @@ function wsSetup() {
     socket.onmessage = function(msg) {  
         try {
             debug("WebSocket Recv:" + msg.data);
-            //XXX: TODO What are you going to do here?            
+            //XXX: TODO What are you going to do here?    
+            var datas = JSON.parse(msg.data);
+            for (data in datas){
+                world[data]=datas[data];
+                drawNextFrame();
+            }   
+
         } catch (e) {
             alert("socket on message: " + e);
         }
